@@ -14,7 +14,7 @@ pub async fn run_server() {
     }
 }
 
-async fn handler(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn handler(_req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     // Handle requests here
     Ok(Response::new(Body::from("Hello, World!")))
 }
