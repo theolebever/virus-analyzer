@@ -50,7 +50,11 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
       - name: Install cargo check tools
         run: |
-          rm -rf ~/.cargo/advisory-db
+          if [[ ${{ runner.os }} == 'Windows' ]]; then
+            rm -r -fo ~/.cargo/advisory-db
+          else
+            rm -rf ~/.cargo/advisory-db  
+          fi
           cargo install --locked cargo-audit || true
           cargo install --locked cargo-pants || true
       - name: Check
