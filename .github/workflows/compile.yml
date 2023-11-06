@@ -55,7 +55,12 @@ jobs:
         run: mv target/${{ matrix.platform.target }}/release/virus-analyzer target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
         shell: bash
       - name: Generate SHA-256
-        run: shasum -a 256 target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} | cut -d ' ' -f 1 > target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
+        run: |
+          if [[ ${{ runner.os }} == 'Windows' ]]; then
+            certUtil -hashfile target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} SHA256 | findstr /v "hash" > target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
+          else
+            shasum -a 256 target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} | cut -d ' ' -f 1 > target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}.sha256
+          fi
         shell: bash
 
   release:
