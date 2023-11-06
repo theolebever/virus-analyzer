@@ -1,3 +1,5 @@
+// src/handle_docker.rs
+
 use bollard_next::container::{Config, CreateContainerOptions, StartContainerOptions};
 use bollard_next::image::CreateImageOptions;
 use bollard_next::image::ListImagesOptions;
@@ -5,24 +7,41 @@ use bollard_next::Docker;
 use futures::stream::StreamExt;
 use uuid::Uuid;
 
-pub async fn launch_analysis(list_images: Vec<String>, malware_path: String) {
+pub async fn launch_analysis(malware_path: String) {
+    let list_images = vec![
+        "malice/windows-defender:latest".to_string(),
+        "malice/escan:latest".to_string(),
+        "malice/bitdefender:latest".to_string(),
+        // "malice/avg:latest".to_string(),
+        "malice/avast:latest".to_string(),
+        "malice/comodo:latest".to_string(),
+        "malice/fprot:latest".to_string(),
+        "malice/fsecure:latest".to_string(),
+        // "malice/kaspersky:latest".to_string(),
+        "malice/mcafee:latest".to_string(),
+        "malice/sophos:latest".to_string(),
+        "malice/clamav:latest".to_string(),
+        // "malice/avira:latest".to_string(),
+    ];
+
     let docker_result = Docker::connect_with_local_defaults();
     let docker = docker_result.expect("Failed to connect to Docker");
 
-    let mut handles = Vec::new();  // Vector to hold the thread handles
+    let mut handles = Vec::new(); // Vector to hold the thread handles
 
     for image_name in list_images {
         // Clone the values to avoid moving them into the closure
         let malware_path_clone = malware_path.clone();
         let docker_clone = docker.clone();
-        let handle = std::thread::spawn(move || {  // Save the thread handle
+        let handle = std::thread::spawn(move || {
+            // Save the thread handle
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 download_container(image_name.clone(), docker_clone.clone()).await;
                 run_container(image_name, malware_path_clone, docker_clone).await;
             });
         });
-        handles.push(handle);  // Add the handle to the vector
+        handles.push(handle); // Add the handle to the vector
     }
 
     // Wait for all threads to finish
@@ -31,9 +50,7 @@ pub async fn launch_analysis(list_images: Vec<String>, malware_path: String) {
     }
 }
 
-
-pub async fn download_container(image_name: String, docker : Docker){
-
+pub async fn download_container(image_name: String, docker: Docker) {
     let images_result = docker.list_images(None::<ListImagesOptions<String>>).await;
     let images = images_result.expect("Failed to list images");
 
@@ -57,7 +74,6 @@ pub async fn download_container(image_name: String, docker : Docker){
                 Err(e) => {
                     eprintln!("Failed to pull image: {}", e);
                     futures::future::ready(())
-
                 }
             })
             .await;
@@ -88,9 +104,7 @@ pub async fn run_container(image_name: String, malware_path: String, docker: Doc
         image: Some(image_name.clone()),
         cmd: Some(vec![file_name.to_string()]),
         host_config: Some(bollard_next::models::HostConfig {
-            binds: Some(vec![
-                format!("{}:{}", folder_path, container_dir),
-            ]),
+            binds: Some(vec![format!("{}:{}", folder_path, container_dir)]),
             ..Default::default()
         }),
         ..Default::default()
@@ -129,16 +143,16 @@ pub async fn run_container(image_name: String, malware_path: String, docker: Doc
     // Specify the type parameter T as String
     let logs = docker.logs::<String>(&container.id, Some(options));
 
-    tokio::pin!(logs);  // Pin the stream so that it can be used with the next method
+    tokio::pin!(logs); // Pin the stream so that it can be used with the next method
 
     while let Some(log_result) = logs.next().await {
         match log_result {
-            Ok(bollard_next::container::LogOutput::StdOut { message }) |
-            Ok(bollard_next::container::LogOutput::StdErr { message }) => {
+            Ok(bollard_next::container::LogOutput::StdOut { message })
+            | Ok(bollard_next::container::LogOutput::StdErr { message }) => {
                 let output_str = String::from_utf8_lossy(&message);
                 println!("{}", output_str);
-            },
-            Ok(_) => {},
+            }
+            Ok(_) => {}
             Err(e) => {
                 eprintln!("Failed to read logs: {}", e);
                 break;
@@ -148,10 +162,12 @@ pub async fn run_container(image_name: String, malware_path: String, docker: Doc
 
     // Delete the container once it has stopped
     let delete_result = docker
-        .remove_container(&container.id, None::<bollard_next::container::RemoveContainerOptions>)
+        .remove_container(
+            &container.id,
+            None::<bollard_next::container::RemoveContainerOptions>,
+        )
         .await;
 
     delete_result.expect("Failed to delete container");
     println!("[+] {} container stopped and deleted", image_name);
 }
-

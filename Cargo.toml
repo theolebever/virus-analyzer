@@ -14,11 +14,15 @@ futures-util = "0.3.29"
 futures = "0.3.29"
 bollard-next = "0.15.4"
 uuid = { version = "1.5.0", features = ["v4"] }
+iced = {version = "0.10.0", features = ["image", "tokio"]}
+log = "0.4.20"
+tinyfiledialogs = "3.9.1"
 
 [profile.release]
 strip = true  # Automatically strip symbols from the binary.
 opt-level = "z"  # Optimize for size.
 lto = true  # Enable link-time optimization.
 codegen-units = 1 # Compile the entire crate as a single unit.
+panic = "abort" # Abort on panic.
 
 
