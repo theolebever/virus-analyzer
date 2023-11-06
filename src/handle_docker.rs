@@ -7,7 +7,9 @@ use bollard_next::Docker;
 use futures::stream::StreamExt;
 use uuid::Uuid;
 
-pub async fn launch_analysis(malware_path: String) {
+use log::{info, warn};
+
+pub async fn launch_analysis(malware_path: String) -> Result<(), ()> {
     let list_images = vec![
         "malice/windows-defender:latest".to_string(),
         "malice/escan:latest".to_string(),
@@ -25,7 +27,13 @@ pub async fn launch_analysis(malware_path: String) {
     ];
 
     let docker_result = Docker::connect_with_local_defaults();
-    let docker = docker_result.expect("Failed to connect to Docker");
+    let docker = match docker_result {
+        Ok(docker) => docker,
+        Err(e) => {
+            warn!("Failed to connect to Docker: {}", e);
+            return Err(());
+        }
+    };
 
     let mut handles = Vec::new(); // Vector to hold the thread handles
 
@@ -33,21 +41,20 @@ pub async fn launch_analysis(malware_path: String) {
         // Clone the values to avoid moving them into the closure
         let malware_path_clone = malware_path.clone();
         let docker_clone = docker.clone();
-        let handle = std::thread::spawn(move || {
-            // Save the thread handle
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                download_container(image_name.clone(), docker_clone.clone()).await;
-                run_container(image_name, malware_path_clone, docker_clone).await;
-            });
+        let handle = tokio::spawn(async move {
+            download_container(image_name.clone(), docker_clone.clone()).await;
+            run_container(image_name, malware_path_clone, docker_clone).await;
         });
         handles.push(handle); // Add the handle to the vector
     }
 
     // Wait for all threads to finish
     for handle in handles {
-        handle.join().unwrap();
+        handle.await.expect("Failed to join thread");
     }
+
+    info!("Analysis finished successfully");
+    return Ok(());
 }
 
 pub async fn download_container(image_name: String, docker: Docker) {
@@ -58,7 +65,7 @@ pub async fn download_container(image_name: String, docker: Docker) {
         .iter()
         .any(|image| image.repo_tags.contains(&image_name))
     {
-        println!("[+] {} image not already pulled, pulling...", image_name);
+        info!("[+] {} image not already pulled, pulling...", image_name);
         let options = CreateImageOptions {
             from_image: image_name.clone(),
             ..Default::default()
@@ -72,14 +79,14 @@ pub async fn download_container(image_name: String, docker: Docker) {
                     futures::future::ready(())
                 }
                 Err(e) => {
-                    eprintln!("Failed to pull image: {}", e);
+                    warn!("Failed to pull image: {}", e);
                     futures::future::ready(())
                 }
             })
             .await;
-        println!("[+] {} image pulled", image_name);
+        info!("[+] {} image pulled", image_name);
     } else {
-        println!("[+] {} image already downloaded", image_name);
+        info!("[+] {} image already downloaded", image_name);
     }
 }
 
@@ -130,7 +137,7 @@ pub async fn run_container(image_name: String, malware_path: String, docker: Doc
         .await;
     start_result.expect("Failed to start container");
 
-    println!("[+] {} container started", image_name);
+    info!("[+] {} container started", image_name);
 
     // Specify the type parameter T as String
     let options = bollard_next::container::LogsOptions::<String> {
@@ -145,20 +152,29 @@ pub async fn run_container(image_name: String, malware_path: String, docker: Doc
 
     tokio::pin!(logs); // Pin the stream so that it can be used with the next method
 
+    // Create an empty string
+    let mut output = String::new();
+
     while let Some(log_result) = logs.next().await {
         match log_result {
             Ok(bollard_next::container::LogOutput::StdOut { message })
             | Ok(bollard_next::container::LogOutput::StdErr { message }) => {
                 let output_str = String::from_utf8_lossy(&message);
-                println!("{}", output_str);
+                // Check if the output is a json string
+                if output_str.starts_with('{') {
+                    // Append the output to the string
+                    output.push_str(&output_str);
+                }
             }
             Ok(_) => {}
             Err(e) => {
-                eprintln!("Failed to read logs: {}", e);
+                warn!("Failed to read logs: {}", e);
                 break;
             }
         }
     }
+
+    println!("{}", output);
 
     // Delete the container once it has stopped
     let delete_result = docker
@@ -169,5 +185,5 @@ pub async fn run_container(image_name: String, malware_path: String, docker: Doc
         .await;
 
     delete_result.expect("Failed to delete container");
-    println!("[+] {} container stopped and deleted", image_name);
+    info!("[+] {} container stopped and deleted", image_name);
 }
